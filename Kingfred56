@@ -1,0 +1,98 @@
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local Workspace = workspace
+
+-- ตั้งค่า Silent Aim
+local Settings = {
+    AimPart = "HumanoidRootPart",    -- ส่วนที่ยิง
+    AutoShoot = true,                -- ยิงอัตโนมัติ
+    ESP = true,                      -- เปิด ESP
+    Prediction = 0.12,               -- การพยากรณ์ตำแหน่ง
+    JumpOffset = 0.07                -- ปรับกระโดด
+}
+
+local currentESP = nil
+
+------------------------------------------------------------
+-- หาเป้าหมายใกล้สุด
+------------------------------------------------------------
+local function getNearestTarget()
+    local nearestDist = math.huge
+    local nearestTarget = nil
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild(Settings.AimPart) then
+            local targetPart = player.Character[Settings.AimPart]
+            local dist = (targetPart.Position - LocalPlayer.Character[Settings.AimPart].Position).Magnitude
+            if dist < nearestDist then
+                nearestDist = dist
+                nearestTarget = targetPart
+            end
+        end
+    end
+    return nearestTarget
+end
+
+------------------------------------------------------------
+-- คำนวณตำแหน่งยิง (Prediction + JumpOffset)
+------------------------------------------------------------
+local function getSilentAimPosition(targetPart)
+    local pos = targetPart.Position
+    local vel = targetPart.Velocity
+    local predictedPos = pos + vel * Settings.Prediction
+    if targetPart.Parent.Humanoid:GetState() == Enum.HumanoidStateType.Jumping then
+        predictedPos = predictedPos + Vector3.new(0, Settings.JumpOffset, 0)
+    end
+    return predictedPos
+end
+
+------------------------------------------------------------
+-- สร้าง ESP สี่เหลี่ยมรอบตัวผู้เล่น
+------------------------------------------------------------
+local function createESP(targetPart)
+    if currentESP then currentESP:Destroy() end
+    if not targetPart then return end
+
+    local box = Instance.new("BoxHandleAdornment")
+    box.Adornee = targetPart
+    box.AlwaysOnTop = true
+    box.ZIndex = 10
+    box.Size = Vector3.new(2, 5, 1) -- ปรับขนาดให้พอดีตัว
+    box.Color3 = Color3.fromRGB(255,0,0)
+    box.Transparency = 0.3
+    box.Parent = targetPart
+
+    currentESP = box
+end
+
+------------------------------------------------------------
+-- ยิงอัตโนมัติ
+------------------------------------------------------------
+local function fireWeapon(target)
+    if not target then return end
+    local aimPos = getSilentAimPosition(target)
+    if aimPos then
+        local args = {"MOUSE", aimPos}
+        local remote = game:GetService("ReplicatedStorage"):WaitForChild("MAINEVENT")
+        remote:FireServer(unpack(args))
+    end
+end
+
+------------------------------------------------------------
+-- Loop หลัก
+------------------------------------------------------------
+RunService.RenderStepped:Connect(function()
+    local target = getNearestTarget()
+    if target then
+        fireWeapon(target)
+        if Settings.ESP then
+            createESP(target)
+        end
+    else
+        if currentESP then
+            currentESP:Destroy()
+            currentESP = nil
+        end
+    end
+end)
