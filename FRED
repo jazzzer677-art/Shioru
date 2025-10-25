@@ -1,0 +1,169 @@
+-- 🧩 ตั้งค่าก่อน (อย่าลืมวางไว้บนสุดก่อนรัน)
+getgenv().Silent = {
+    Settings = {
+        Toggled = true,                -- เปิดระบบ Silent Aim
+        AutoShoot = true,              -- ยิงอัตโนมัติ
+        AimPart = "HumanoidRootPart",  -- จุดเล็ง (หัว, ตัว, ฯลฯ)
+        FriendCheck = false,
+        WallCheck = false,
+        RainbowTarget = true,
+        Circle = {
+            Visible = true,            -- แสดงวง FOV
+            Radius = 150,
+            Thickness = 2,
+            Transparency = 0.5,
+        },
+        Prediction = {
+            Toggled = true,
+            Value = 0.13,              -- ค่าพยากรณ์ทิศกระสุน (ปรับได้)
+            JumpOffset = 2
+        }
+    }
+}
+
+-- 🧠 Silent Aim Script สำหรับ Da Strike
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Camera = workspace.CurrentCamera
+local Workspace = workspace
+local LocalPlayer = Players.LocalPlayer
+local MainEvent = game:GetService("ReplicatedStorage"):WaitForChild("MainEvent")
+
+local Settings = getgenv().Silent.Settings
+local currentESP, FOVCircle
+
+------------------------------------------------------------
+-- FOV Circle
+------------------------------------------------------------
+local function createFOVCircle()
+	if FOVCircle then FOVCircle:Destroy() end
+	local gui = Instance.new("ScreenGui")
+	gui.Name = "FOVGui"
+	gui.IgnoreGuiInset = true
+	gui.ResetOnSpawn = false
+	gui.Parent = LocalPlayer:WaitForChild("PlayerGui")
+
+	local circle = Instance.new("Frame")
+	circle.Size = UDim2.new(0, Settings.Circle.Radius*2, 0, Settings.Circle.Radius*2)
+	circle.Position = UDim2.new(0.5, -Settings.Circle.Radius, 0.5, -Settings.Circle.Radius)
+	circle.BackgroundTransparency = 1
+	circle.BorderSizePixel = 0
+	circle.Parent = gui
+
+	local uiStroke = Instance.new("UIStroke")
+	uiStroke.Thickness = Settings.Circle.Thickness
+	uiStroke.Transparency = Settings.Circle.Transparency
+	uiStroke.Color = Color3.fromRGB(255, 255, 255)
+	uiStroke.Parent = circle
+
+	FOVCircle = circle
+end
+
+if Settings.Circle.Visible then createFOVCircle() end
+
+------------------------------------------------------------
+-- ตรวจว่าเป้าหมายอยู่ใน FOV
+------------------------------------------------------------
+local function isInFOV(targetPart)
+	local screenPos, onScreen = Camera:WorldToViewportPoint(targetPart.Position)
+	if not onScreen then return false end
+	local center = Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)
+	local mousePos = Vector2.new(screenPos.X, screenPos.Y)
+	return (mousePos - center).Magnitude <= Settings.Circle.Radius
+end
+
+------------------------------------------------------------
+-- หาเป้าหมายที่ใกล้ที่สุด
+------------------------------------------------------------
+local function getNearestTarget()
+	local nearest, nearestDist = nil, math.huge
+	for _, player in ipairs(Players:GetPlayers()) do
+		if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild(Settings.AimPart) then
+			local part = player.Character[Settings.AimPart]
+			local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+			if onScreen and isInFOV(part) then
+				local mag = (Vector2.new(screenPos.X, screenPos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+				if mag < nearestDist then
+					nearestDist = mag
+					nearest = part
+				end
+			end
+		end
+	end
+	return nearest
+end
+
+------------------------------------------------------------
+-- คำนวณตำแหน่งยิงแบบ Silent Aim
+------------------------------------------------------------
+local function getSilentAimPosition(targetPart)
+	if not targetPart then return end
+	local pred = Settings.Prediction.Value
+	local predicted = targetPart.Position + targetPart.Velocity * pred
+	if Settings.Prediction.JumpOffset and targetPart.Parent:FindFirstChild("Humanoid") then
+		if targetPart.Parent.Humanoid:GetState() == Enum.HumanoidStateType.Jumping then
+			predicted += Vector3.new(0, Settings.Prediction.JumpOffset, 0)
+		end
+	end
+	return predicted
+end
+
+------------------------------------------------------------
+-- ESP แบบเส้นรอบตัวผู้เล่น
+------------------------------------------------------------
+local function createESP(targetPart)
+	if currentESP then currentESP:Destroy() end
+	if not targetPart then return end
+
+	local box = Instance.new("BoxHandleAdornment")
+	box.Adornee = targetPart
+	box.AlwaysOnTop = true
+	box.ZIndex = 10
+	box.Size = Vector3.new(2, 3, 1)
+	box.Transparency = 1
+	box.LineThickness = 0.05
+	box.Color3 = Settings.RainbowTarget and Color3.fromHSV((tick()*0.5)%1,1,1) or Color3.fromRGB(255,0,0)
+	box.Parent = targetPart
+
+	currentESP = box
+end
+
+------------------------------------------------------------
+-- ยิงกระสุน (ของ Da Strike)
+------------------------------------------------------------
+local function fireWeapon()
+	if not Settings.Toggled then return end
+	local target = getNearestTarget()
+	if target then
+		local aimPos = getSilentAimPosition(target)
+		if aimPos then
+			MainEvent:FireServer("UpdateMousePosI2", aimPos)
+			if Settings.AutoShoot then
+				print("🔥 Silent Aim ยิงไปที่:", target.Parent.Name)
+			end
+			createESP(target)
+		end
+	end
+end
+
+UserInputService.InputBegan:Connect(function(input, processed)
+	if not processed and input.UserInputType == Enum.UserInputType.MouseButton1 then
+		fireWeapon()
+	end
+end)
+
+------------------------------------------------------------
+-- อัปเดต ESP ทุกเฟรม
+------------------------------------------------------------
+RunService.RenderStepped:Connect(function()
+	if not Settings.Toggled then return end
+	local target = getNearestTarget()
+	if target then
+		if not currentESP or currentESP.Adornee ~= target then
+			createESP(target)
+		end
+	else
+		if currentESP then currentESP:Destroy() currentESP = nil end
+	end
+end)
