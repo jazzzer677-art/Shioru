@@ -1,0 +1,117 @@
+--// 🟣 ตั้งค่าการแสดง Highlight
+local FillColor = Color3.fromRGB(175, 25, 255)
+local DepthMode = "AlwaysOnTop"
+local FillTransparency = 0.5
+local OutlineColor = Color3.fromRGB(255, 255, 255)
+local OutlineTransparency = 0
+
+--// 🧩 บริการหลัก
+local CoreGui = game:GetService("CoreGui")
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local Camera = workspace.CurrentCamera
+local lp = Players.LocalPlayer
+local connections = {}
+
+--// 🗂 สร้างพื้นที่เก็บ Highlight
+local Storage = Instance.new("Folder")
+Storage.Parent = CoreGui
+Storage.Name = "Highlight_Storage"
+
+--// 🎯 ตัวแปรสำหรับล็อกเป้า
+local LockedTarget = nil
+
+--// ฟังก์ชันสร้าง Highlight
+local function Highlight(plr)
+	local Highlight = Instance.new("Highlight")
+	Highlight.Name = plr.Name
+	Highlight.FillColor = FillColor
+	Highlight.DepthMode = DepthMode
+	Highlight.FillTransparency = FillTransparency
+	Highlight.OutlineColor = OutlineColor
+	Highlight.OutlineTransparency = OutlineTransparency
+	Highlight.Parent = Storage
+	
+	if plr.Character then
+		Highlight.Adornee = plr.Character
+	end
+	
+	connections[plr] = plr.CharacterAdded:Connect(function(char)
+		Highlight.Adornee = char
+	end)
+end
+
+--// เมื่อมีผู้เล่นเข้า
+Players.PlayerAdded:Connect(Highlight)
+for i,v in pairs(Players:GetPlayers()) do
+	if v ~= lp then
+		Highlight(v)
+	end
+end
+
+--// ลบเมื่อผู้เล่นออก
+Players.PlayerRemoving:Connect(function(plr)
+	if Storage:FindFirstChild(plr.Name) then
+		Storage[plr.Name]:Destroy()
+	end
+	if connections[plr] then
+		connections[plr]:Disconnect()
+	end
+	if LockedTarget == plr then
+		LockedTarget = nil
+	end
+end)
+
+--// 🔒 ฟังก์ชันล็อกเป้า (กด Q)
+UserInputService.InputBegan:Connect(function(input, processed)
+	if processed then return end
+	if input.KeyCode == Enum.KeyCode.Q then
+		if LockedTarget then
+			print("🔓 ปลดล็อกเป้า: " .. LockedTarget.Name)
+			LockedTarget = nil
+		else
+			-- หาผู้เล่นที่ใกล้กล้องที่สุด
+			local nearest, nearestDist = nil, math.huge
+			for _, plr in pairs(Players:GetPlayers()) do
+				if plr ~= lp and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
+					local hrp = plr.Character.HumanoidRootPart
+					local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
+					if onScreen then
+						local mousePos = UserInputService:GetMouseLocation()
+						local dist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
+						if dist < nearestDist and dist < 200 then -- ระยะล็อกสูงสุด
+							nearest = plr
+							nearestDist = dist
+						end
+					end
+				end
+			end
+
+			if nearest then
+				LockedTarget = nearest
+				print("🎯 ล็อกเป้า: " .. nearest.Name)
+			end
+		end
+	end
+end)
+
+--// 📷 หมุนกล้องตามเป้าแบบข้างตัว
+RunService.RenderStepped:Connect(function()
+	if LockedTarget and LockedTarget.Character and LockedTarget.Character:FindFirstChild("HumanoidRootPart") and LockedTarget.Character:FindFirstChild("Humanoid") then
+		local hrp = LockedTarget.Character.HumanoidRootPart
+		local humanoid = LockedTarget.Character.Humanoid
+		
+		-- หาทิศทางการเคลื่อนที่
+		local moveDir = humanoid.MoveDirection
+		local right = hrp.CFrame.RightVector
+		local up = Vector3.new(0, 3, 0) -- สูงขึ้น 3 studs
+
+		-- offset ข้างตัวตามทิศทาง X
+		local sideOffset = right * moveDir.X * 3
+		local targetPos = hrp.Position + up + sideOffset
+
+		-- หมุนกล้องไปยังตำแหน่งด้านข้างตัว
+		Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPos)
+	end
+end)
