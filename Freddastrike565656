@@ -1,15 +1,16 @@
---// Settings
+--// Highlight Settings
 local FillColor = Color3.fromRGB(175,25,255)
 local DepthMode = "AlwaysOnTop"
 local FillTransparency = 0.5
 local OutlineColor = Color3.fromRGB(255,255,255)
 local OutlineTransparency = 0
 
+--// Services
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Camera = workspace.CurrentCamera
 local lp = Players.LocalPlayer
 
@@ -22,14 +23,15 @@ local highlights = {}
 local connections = {}
 
 --// FOV Settings
-local FOVRadius = 300
+local FOVRadius = 150 -- ลดขนาดวงเล็งลง
 local FOVCircle = Drawing.new("Circle")
 FOVCircle.Radius = FOVRadius
-FOVCircle.Color = Color3.fromRGB(255,0,0)
-FOVCircle.Thickness = 3
+FOVCircle.Color = Color3.fromRGB(255,255,255) -- สีขาว
+FOVCircle.Thickness = 2
 FOVCircle.Filled = false
 FOVCircle.Transparency = 0.5
 FOVCircle.NumSides = 100
+FOVCircle.Visible = true
 
 --// Silent Aim Settings
 local Silent = getgenv().Silent and getgenv().Silent.Settings or {
@@ -37,7 +39,7 @@ local Silent = getgenv().Silent and getgenv().Silent.Settings or {
     AimPart = "HumanoidRootPart"
 }
 
---// สร้าง Highlight สำหรับผู้เล่น
+--// สร้าง Highlight
 local function CreateHighlight(plr)
     local hl = Instance.new("Highlight")
     hl.Name = plr.Name
@@ -59,7 +61,7 @@ local function CreateHighlight(plr)
     highlights[plr] = hl
 end
 
---// Player Added/Removing
+--// Player Added/Removed
 Players.PlayerAdded:Connect(CreateHighlight)
 for _,v in pairs(Players:GetPlayers()) do
     if v ~= lp then
@@ -78,22 +80,24 @@ Players.PlayerRemoving:Connect(function(plr)
     end
 end)
 
---// ฟังก์ชันหาเป้าหมายใน POV + FOV
+--// หาเป้าหมายใน FOV (เฉพาะใกล้ Mouse)
 local function GetTargetsInFOV()
     local mousePos = UserInputService:GetMouseLocation()
-    local targets = {}
+    local nearestTarget, nearestDist = nil, math.huge
 
     for plr, hl in pairs(highlights) do
         if plr ~= lp and plr.Character and plr.Character:FindFirstChild(Silent.AimPart) then
             local part = plr.Character[Silent.AimPart]
             local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
 
-            -- ตรวจสอบว่าอยู่ใน POV (หน้าจอ) และใน FOV
             if onScreen then
                 local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
                 if dist <= FOVRadius then
-                    hl.Enabled = true -- แสดง Highlight
-                    table.insert(targets, plr) -- ใส่ target ยิง
+                    hl.Enabled = true
+                    if dist < nearestDist then
+                        nearestDist = dist
+                        nearestTarget = plr
+                    end
                 else
                     hl.Enabled = false
                 end
@@ -103,26 +107,24 @@ local function GetTargetsInFOV()
         end
     end
 
-    return targets
+    return nearestTarget
 end
 
---// ยิงอัตโนมัติ
+--// ยิงผู้เล่นใน FOV (เน้นใกล้ที่สุด)
 local function SilentShoot()
-    local targets = GetTargetsInFOV()
-    for _, target in pairs(targets) do
-        if target and target.Character and target.Character:FindFirstChild(Silent.AimPart) then
-            local args = {
-                "MOUSE",
-                Vector3.new(
-                    target.Character[Silent.AimPart].Position.X,
-                    target.Character[Silent.AimPart].Position.Y,
-                    target.Character[Silent.AimPart].Position.Z
-                )
-            }
-            local mainEvent = ReplicatedStorage:WaitForChild("MAINEVENT")
-            if mainEvent then
-                mainEvent:FireServer(unpack(args))
-            end
+    local target = GetTargetsInFOV()
+    if target and target.Character and target.Character:FindFirstChild(Silent.AimPart) then
+        local args = {
+            "MOUSE",
+            Vector3.new(
+                target.Character[Silent.AimPart].Position.X,
+                target.Character[Silent.AimPart].Position.Y,
+                target.Character[Silent.AimPart].Position.Z
+            )
+        }
+        local mainEvent = ReplicatedStorage:WaitForChild("MAINEVENT")
+        if mainEvent then
+            mainEvent:FireServer(unpack(args))
         end
     end
 end
