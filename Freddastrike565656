@@ -19,9 +19,14 @@ local Storage = Instance.new("Folder")
 Storage.Parent = CoreGui
 Storage.Name = "Highlight_Storage"
 
---// 🎯 ตัวแปรสำหรับล็อกเป้า
-local LockedTarget = nil
-local cameraSpeed = 0.1 -- ความเร็ว smooth (0-1)
+--// FOV settings
+local FOVRadius = 150 -- รัศมีวงกลม FOV
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Radius = FOVRadius
+FOVCircle.Color = Color3.fromRGB(255, 0, 0)
+FOVCircle.Thickness = 2
+FOVCircle.Filled = false
+FOVCircle.Transparency = 0.5
 
 --// ฟังก์ชันสร้าง Highlight
 local function Highlight(plr)
@@ -43,15 +48,14 @@ local function Highlight(plr)
 	end)
 end
 
---// เมื่อมีผู้เล่นเข้า
+--// สร้าง Highlight สำหรับผู้เล่นทั้งหมด
 Players.PlayerAdded:Connect(Highlight)
-for i,v in pairs(Players:GetPlayers()) do
+for _,v in pairs(Players:GetPlayers()) do
 	if v ~= lp then
 		Highlight(v)
 	end
 end
 
---// ลบเมื่อผู้เล่นออก
 Players.PlayerRemoving:Connect(function(plr)
 	if Storage:FindFirstChild(plr.Name) then
 		Storage[plr.Name]:Destroy()
@@ -59,62 +63,53 @@ Players.PlayerRemoving:Connect(function(plr)
 	if connections[plr] then
 		connections[plr]:Disconnect()
 	end
-	if LockedTarget == plr then
-		LockedTarget = nil
-	end
 end)
 
---// 🔒 ฟังก์ชันล็อกเป้า (กด Q)
-UserInputService.InputBegan:Connect(function(input, processed)
-	if processed then return end
-	if input.KeyCode == Enum.KeyCode.Q then
-		if LockedTarget then
-			print("🔓 ปลดล็อกเป้า: " .. LockedTarget.Name)
-			LockedTarget = nil
-		else
-			-- หาผู้เล่นที่ใกล้กล้องที่สุด
-			local nearest, nearestDist = nil, math.huge
-			for _, plr in pairs(Players:GetPlayers()) do
-				if plr ~= lp and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") then
-					local hrp = plr.Character.HumanoidRootPart
-					local pos, onScreen = Camera:WorldToViewportPoint(hrp.Position)
-					if onScreen then
-						local mousePos = UserInputService:GetMouseLocation()
-						local dist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
-						if dist < nearestDist and dist < 200 then -- ระยะล็อกสูงสุด
-							nearest = plr
-							nearestDist = dist
-						end
-					end
-				end
-			end
+--// 🟢 Silent Aim ฟังก์ชัน
+local function GetNearestTargetInFOV()
+	local mousePos = UserInputService:GetMouseLocation()
+	local nearest, nearestDist = nil, math.huge
 
-			if nearest then
-				LockedTarget = nearest
-				print("🎯 ล็อกเป้า: " .. nearest.Name)
+	for _, plr in pairs(Players:GetPlayers()) do
+		if plr ~= lp and plr.Character and plr.Character:FindFirstChild("Head") then
+			local head = plr.Character.Head
+			local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+			if onScreen then
+				local dist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
+				if dist < nearestDist and dist <= FOVRadius then
+					nearest = plr
+					nearestDist = dist
+				end
 			end
 		end
 	end
-end)
 
---// 📷 Smooth camera ตามเป้าแบบข้างตัว
+	return nearest
+end
+
+--// ตัวอย่างการยิง Silent Aim
+local function Shoot()
+	local target = GetNearestTargetInFOV()
+	if target and target.Character and target.Character:FindFirstChild("Head") then
+		local args = {
+			Target = target.Character.Head -- ยิงไปหัว
+		}
+		-- เปลี่ยนชื่อ RemoteEvent ตามเกมของคุณ
+		if lp.Backpack:FindFirstChild("[Revolver]") then
+			local remote = lp.Backpack["[Revolver]"]:FindFirstChild("RemoteEvent")
+			if remote then
+				remote:FireServer(unpack(args))
+			end
+		end
+	end
+end
+
+--// อัพเดต FOV และ AutoShoot
 RunService.RenderStepped:Connect(function()
-	if LockedTarget and LockedTarget.Character and LockedTarget.Character:FindFirstChild("HumanoidRootPart") and LockedTarget.Character:FindFirstChild("Humanoid") then
-		local hrp = LockedTarget.Character.HumanoidRootPart
-		local humanoid = LockedTarget.Character.Humanoid
-		
-		-- หาทิศทางการเคลื่อนที่
-		local moveDir = humanoid.MoveDirection
-		local right = hrp.CFrame.RightVector
-		local up = Vector3.new(0, 3, 0) -- สูงขึ้น 3 studs
+	local mousePos = UserInputService:GetMouseLocation()
+	FOVCircle.Position = Vector2.new(mousePos.X, mousePos.Y)
 
-		-- offset ข้างตัวตามทิศทาง X
-		local sideOffset = right * moveDir.X * 3
-		local targetPos = hrp.Position + up + sideOffset
-
-		-- smooth camera
-		local currentCFrame = Camera.CFrame
-		local desiredCFrame = CFrame.new(currentCFrame.Position, targetPos)
-		Camera.CFrame = currentCFrame:Lerp(desiredCFrame, cameraSpeed)
+	if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+		Shoot()
 	end
 end)
