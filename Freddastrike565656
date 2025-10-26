@@ -21,6 +21,7 @@ Storage.Name = "Highlight_Storage"
 
 --// 🎯 ตัวแปรสำหรับล็อกเป้า
 local LockedTarget = nil
+local cameraSpeed = 0.1 -- ความเร็ว smooth (0-1)
 
 --// ฟังก์ชันสร้าง Highlight
 local function Highlight(plr)
@@ -96,7 +97,7 @@ UserInputService.InputBegan:Connect(function(input, processed)
 	end
 end)
 
---// 📷 หมุนกล้องตามเป้าแบบข้างตัว
+--// 📷 Smooth camera ตามเป้าแบบข้างตัว
 RunService.RenderStepped:Connect(function()
 	if LockedTarget and LockedTarget.Character and LockedTarget.Character:FindFirstChild("HumanoidRootPart") and LockedTarget.Character:FindFirstChild("Humanoid") then
 		local hrp = LockedTarget.Character.HumanoidRootPart
@@ -111,7 +112,9 @@ RunService.RenderStepped:Connect(function()
 		local sideOffset = right * moveDir.X * 3
 		local targetPos = hrp.Position + up + sideOffset
 
-		-- หมุนกล้องไปยังตำแหน่งด้านข้างตัว
-		Camera.CFrame = CFrame.new(Camera.CFrame.Position, targetPos)
+		-- smooth camera
+		local currentCFrame = Camera.CFrame
+		local desiredCFrame = CFrame.new(currentCFrame.Position, targetPos)
+		Camera.CFrame = currentCFrame:Lerp(desiredCFrame, cameraSpeed)
 	end
 end)
