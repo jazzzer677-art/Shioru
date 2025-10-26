@@ -1,11 +1,11 @@
---// 🟣 ตั้งค่าการแสดง Highlight
+--// 🟣 ตั้งค่า Highlight
 local FillColor = Color3.fromRGB(175, 25, 255)
 local DepthMode = "AlwaysOnTop"
 local FillTransparency = 0.5
 local OutlineColor = Color3.fromRGB(255, 255, 255)
 local OutlineTransparency = 0
 
---// 🧩 บริการหลัก
+--// บริการหลัก
 local CoreGui = game:GetService("CoreGui")
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -13,8 +13,9 @@ local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 local lp = Players.LocalPlayer
 local connections = {}
+local highlights = {}
 
---// 🗂 สร้างพื้นที่เก็บ Highlight
+--// สร้าง Folder เก็บ Highlight
 local Storage = Instance.new("Folder")
 Storage.Parent = CoreGui
 Storage.Name = "Highlight_Storage"
@@ -29,87 +30,109 @@ FOVCircle.Filled = false
 FOVCircle.Transparency = 0.5
 
 --// ฟังก์ชันสร้าง Highlight
-local function Highlight(plr)
-	local Highlight = Instance.new("Highlight")
-	Highlight.Name = plr.Name
-	Highlight.FillColor = FillColor
-	Highlight.DepthMode = DepthMode
-	Highlight.FillTransparency = FillTransparency
-	Highlight.OutlineColor = OutlineColor
-	Highlight.OutlineTransparency = OutlineTransparency
-	Highlight.Parent = Storage
-	
-	if plr.Character then
-		Highlight.Adornee = plr.Character
-	end
-	
-	connections[plr] = plr.CharacterAdded:Connect(function(char)
-		Highlight.Adornee = char
-	end)
+local function CreateHighlight(plr)
+    local Highlight = Instance.new("Highlight")
+    Highlight.Name = plr.Name
+    Highlight.FillColor = FillColor
+    Highlight.DepthMode = DepthMode
+    Highlight.FillTransparency = FillTransparency
+    Highlight.OutlineColor = OutlineColor
+    Highlight.OutlineTransparency = OutlineTransparency
+    Highlight.Parent = Storage
+
+    if plr.Character then  
+        Highlight.Adornee = plr.Character  
+    end  
+    
+    connections[plr] = plr.CharacterAdded:Connect(function(char)  
+        Highlight.Adornee = char  
+    end)
+
+    highlights[plr] = Highlight
 end
 
---// สร้าง Highlight สำหรับผู้เล่นทั้งหมด
-Players.PlayerAdded:Connect(Highlight)
+-- สร้าง Highlight สำหรับผู้เล่นทั้งหมด
+Players.PlayerAdded:Connect(CreateHighlight)
 for _,v in pairs(Players:GetPlayers()) do
-	if v ~= lp then
-		Highlight(v)
-	end
+    if v ~= lp then
+        CreateHighlight(v)
+    end
 end
 
 Players.PlayerRemoving:Connect(function(plr)
-	if Storage:FindFirstChild(plr.Name) then
-		Storage[plr.Name]:Destroy()
-	end
-	if connections[plr] then
-		connections[plr]:Disconnect()
-	end
+    if highlights[plr] then
+        highlights[plr]:Destroy()
+        highlights[plr] = nil
+    end
+    if connections[plr] then
+        connections[plr]:Disconnect()
+        connections[plr] = nil
+    end
 end)
 
---// 🟢 Silent Aim ฟังก์ชัน
+--// ฟังก์ชันหาเป้าหมายใน FOV
 local function GetNearestTargetInFOV()
-	local mousePos = UserInputService:GetMouseLocation()
-	local nearest, nearestDist = nil, math.huge
+    local mousePos = UserInputService:GetMouseLocation()
+    local nearest, nearestDist = nil, math.huge
 
-	for _, plr in pairs(Players:GetPlayers()) do
-		if plr ~= lp and plr.Character and plr.Character:FindFirstChild("Head") then
-			local head = plr.Character.Head
-			local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
-			if onScreen then
-				local dist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
-				if dist < nearestDist and dist <= FOVRadius then
-					nearest = plr
-					nearestDist = dist
-				end
-			end
-		end
-	end
+    for plr, hl in pairs(highlights) do
+        if plr ~= lp and plr.Character and plr.Character:FindFirstChild("Head") then
+            local head = plr.Character.Head
+            local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+            if onScreen then
+                local dist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
+                if dist <= FOVRadius then
+                    nearest = plr
+                    nearestDist = dist
+                    -- แสดง Highlight เฉพาะใน FOV
+                    hl.Enabled = true
+                else
+                    hl.Enabled = false
+                end
+            else
+                hl.Enabled = false
+            end
+        end
+    end
 
-	return nearest
+    return nearest
 end
 
---// ตัวอย่างการยิง Silent Aim
+--// ฟังก์ชันยิง Silent Aim
 local function Shoot()
-	local target = GetNearestTargetInFOV()
-	if target and target.Character and target.Character:FindFirstChild("Head") then
-		local args = {
-			Target = target.Character.Head -- ยิงไปหัว
-		}
-		-- เปลี่ยนชื่อ RemoteEvent ตามเกมของคุณ
-		if lp.Backpack:FindFirstChild("[Revolver]") then
-			local remote = lp.Backpack["[Revolver]"]:FindFirstChild("RemoteEvent")
-			if remote then
-				remote:FireServer(unpack(args))
-			end
-		end
-	end
+    local target = GetNearestTargetInFOV()
+    if target and target.Character and target.Character:FindFirstChild("Head") then
+        local args = {
+            "MOUSE",
+            target.Character.Head.Position
+        }
+        local mainEvent = game:GetService("ReplicatedStorage"):FindFirstChild("MAINEVENT")
+        if mainEvent then
+            mainEvent:FireServer(unpack(args))
+        end
+    end
 end
 
 --// อัพเดต FOV และ AutoShoot
 RunService.RenderStepped:Connect(function()
-	local mousePos = UserInputService:GetMouseLocation()
-	FOVCircle.Position = Vector2.new(mousePos.X, mousePos.Y)
+    local mousePos = UserInputService:GetMouseLocation()
+    FOVCircle.Position = Vector2.new(mousePos.X, mousePos.Y)
 
-	if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
-		Shoot()
-	end
+    if UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1) then
+        Shoot()
+    else
+        -- ปิด Highlight ของคนที่ไม่อยู่ใน FOV
+        for plr, hl in pairs(highlights) do
+            if hl.Enabled then
+                local head = plr.Character and plr.Character:FindFirstChild("Head")
+                if head then
+                    local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                    local dist = (Vector2.new(pos.X, pos.Y) - mousePos).Magnitude
+                    if dist > FOVRadius or not onScreen then
+                        hl.Enabled = false
+                    end
+                end
+            end
+        end
+    end
 end)
