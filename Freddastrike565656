@@ -1,11 +1,31 @@
---// Highlight Settings
-local FillColor = Color3.fromRGB(175,25,255)
-local DepthMode = "AlwaysOnTop"
-local FillTransparency = 0.5
-local OutlineColor = Color3.fromRGB(255,255,255)
-local OutlineTransparency = 0
+--// 🟣 ใช้ค่าการตั้งค่าแบบที่คุณให้
+getgenv().Silent = getgenv().Silent or {
+    Settings = {
+        Toggled = true,
+        AimPart = "HumanoidRootPart",
+        HitChance = 9999,
+        Prediction = {
+            Toggled = true,
+            Value = 0.1242231,
+            AutoPred = false,
+            JumpOffset = 0.07,
+            AntiGroundShots = true,
+            Resolve = false,
+        },
+        Circle = {
+            Visible = false,
+            Transparency = 0.5,
+            Thickness = 3,
+            NumSides = 100,
+            Radius = 300,
+            Filled = false,
+        },
+        RainbowTarget = false,
+        WallCheck = false,
+    }
+}
 
---// Services
+--// 🧩 Services
 local Players = game:GetService("Players")
 local CoreGui = game:GetService("CoreGui")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
@@ -14,32 +34,32 @@ local UserInputService = game:GetService("UserInputService")
 local Camera = workspace.CurrentCamera
 local lp = Players.LocalPlayer
 
+--// 🟣 Highlight Settings
+local FillColor = Color3.fromRGB(175, 25, 255)
+local DepthMode = "AlwaysOnTop"
+local FillTransparency = 0.5
+local OutlineColor = Color3.fromRGB(255, 255, 255)
+local OutlineTransparency = 0
+
 --// Folder เก็บ Highlight
 local Storage = Instance.new("Folder")
 Storage.Name = "Highlight_Storage"
 Storage.Parent = CoreGui
 
-local highlights = {}
-local connections = {}
+local highlights, connections = {}, {}
 
---// FOV Settings
-local FOVRadius = 150 -- ลดขนาดวงเล็งลง
+--// 🔘 FOV Circle
+local circleConfig = getgenv().Silent.Settings.Circle
 local FOVCircle = Drawing.new("Circle")
-FOVCircle.Radius = FOVRadius
-FOVCircle.Color = Color3.fromRGB(255,255,255) -- สีขาว
-FOVCircle.Thickness = 2
-FOVCircle.Filled = false
-FOVCircle.Transparency = 0.5
-FOVCircle.NumSides = 100
-FOVCircle.Visible = true
+FOVCircle.Visible = circleConfig.Visible
+FOVCircle.Transparency = circleConfig.Transparency
+FOVCircle.Thickness = circleConfig.Thickness
+FOVCircle.NumSides = circleConfig.NumSides
+FOVCircle.Radius = circleConfig.Radius
+FOVCircle.Filled = circleConfig.Filled
+FOVCircle.Color = Color3.fromRGB(255, 255, 255)
 
---// Silent Aim Settings
-local Silent = getgenv().Silent and getgenv().Silent.Settings or {
-    Toggled = true,
-    AimPart = "HumanoidRootPart"
-}
-
---// สร้าง Highlight
+--// 🟣 สร้าง Highlight
 local function CreateHighlight(plr)
     local hl = Instance.new("Highlight")
     hl.Name = plr.Name
@@ -48,6 +68,7 @@ local function CreateHighlight(plr)
     hl.FillTransparency = FillTransparency
     hl.OutlineColor = OutlineColor
     hl.OutlineTransparency = OutlineTransparency
+    hl.Enabled = false
     hl.Parent = Storage
 
     if plr.Character then
@@ -61,7 +82,7 @@ local function CreateHighlight(plr)
     highlights[plr] = hl
 end
 
---// Player Added/Removed
+--// 👥 Player Added/Removed
 Players.PlayerAdded:Connect(CreateHighlight)
 for _,v in pairs(Players:GetPlayers()) do
     if v ~= lp then
@@ -80,29 +101,22 @@ Players.PlayerRemoving:Connect(function(plr)
     end
 end)
 
---// หาเป้าหมายใน FOV (เฉพาะใกล้ Mouse)
-local function GetTargetsInFOV()
+--// 🔍 หาเป้าหมายที่ใกล้สุดใน FOV
+local function GetNearestTargetInFOV()
     local mousePos = UserInputService:GetMouseLocation()
     local nearestTarget, nearestDist = nil, math.huge
+    local radius = getgenv().Silent.Settings.Circle.Radius
 
     for plr, hl in pairs(highlights) do
-        if plr ~= lp and plr.Character and plr.Character:FindFirstChild(Silent.AimPart) then
-            local part = plr.Character[Silent.AimPart]
+        if plr ~= lp and plr.Character and plr.Character:FindFirstChild(getgenv().Silent.Settings.AimPart) then
+            local part = plr.Character[getgenv().Silent.Settings.AimPart]
             local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
-
             if onScreen then
                 local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
-                if dist <= FOVRadius then
-                    hl.Enabled = true
-                    if dist < nearestDist then
-                        nearestDist = dist
-                        nearestTarget = plr
-                    end
-                else
-                    hl.Enabled = false
+                if dist <= radius and dist < nearestDist then
+                    nearestDist = dist
+                    nearestTarget = plr
                 end
-            else
-                hl.Enabled = false
             end
         end
     end
@@ -110,31 +124,56 @@ local function GetTargetsInFOV()
     return nearestTarget
 end
 
---// ยิงผู้เล่นใน FOV (เน้นใกล้ที่สุด)
-local function SilentShoot()
-    local target = GetTargetsInFOV()
-    if target and target.Character and target.Character:FindFirstChild(Silent.AimPart) then
-        local args = {
-            "MOUSE",
-            Vector3.new(
-                target.Character[Silent.AimPart].Position.X,
-                target.Character[Silent.AimPart].Position.Y,
-                target.Character[Silent.AimPart].Position.Z
-            )
-        }
-        local mainEvent = ReplicatedStorage:WaitForChild("MAINEVENT")
-        if mainEvent then
-            mainEvent:FireServer(unpack(args))
+--// 🔫 ยิงเป้าหมาย
+local function SilentShoot(target)
+    if not target then return end
+    local settings = getgenv().Silent.Settings
+    local char = target.Character
+    if not char or not char:FindFirstChild(settings.AimPart) then return end
+
+    local part = char[settings.AimPart]
+    local pos = part.Position
+
+    -- ✅ เพิ่ม Prediction
+    if settings.Prediction.Toggled then
+        local hrp = target.Character:FindFirstChild("HumanoidRootPart")
+        if hrp and hrp.Velocity then
+            pos = pos + hrp.Velocity * settings.Prediction.Value
         end
+    end
+
+    local args = {
+        "MOUSE",
+        pos
+    }
+
+    local mainEvent = ReplicatedStorage:FindFirstChild("MAINEVENT")
+    if mainEvent then
+        mainEvent:FireServer(unpack(args))
     end
 end
 
---// อัพเดต FOV + Highlight + Silent Aim
+--// 🔁 อัปเดตทุกเฟรม
 RunService.RenderStepped:Connect(function()
+    local settings = getgenv().Silent.Settings
     local mousePos = UserInputService:GetMouseLocation()
     FOVCircle.Position = Vector2.new(mousePos.X, mousePos.Y)
 
-    if Silent.Toggled then
-        SilentShoot()
+    -- หาเป้าหมายเดียวในวง
+    local target = GetNearestTargetInFOV()
+
+    -- ปิด Highlight ทั้งหมดก่อน
+    for _, hl in pairs(highlights) do
+        hl.Enabled = false
+    end
+
+    -- เปิดเฉพาะเป้าหมายเดียว
+    if target and highlights[target] then
+        highlights[target].Enabled = true
+    end
+
+    -- ยิงถ้าเปิดใช้งาน
+    if settings.Toggled and target then
+        SilentShoot(target)
     end
 end)
