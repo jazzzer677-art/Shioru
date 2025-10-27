@@ -1,0 +1,187 @@
+--// Melee-Assist + FOV + Highlight (เฉพาะ Fists)
+
+-- Services
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local RunService = game:GetService("RunService")
+local UserInputService = game:GetService("UserInputService")
+local CoreGui = game:GetService("CoreGui")
+local Camera = workspace.CurrentCamera
+local lp = Players.LocalPlayer
+
+--// Highlight Settings
+local FillColor = Color3.fromRGB(175,25,255)
+local DepthMode = "AlwaysOnTop"
+local FillTransparency = 0.5
+local OutlineColor = Color3.fromRGB(255,255,255)
+local OutlineTransparency = 0
+
+local Storage = Instance.new("Folder")
+Storage.Name = "Highlight_Storage"
+Storage.Parent = CoreGui
+
+local highlights = {}
+local connections = {}
+
+--// FOV Settings
+local FOVRadius = 150
+local FOVCircle = Drawing.new("Circle")
+FOVCircle.Radius = FOVRadius
+FOVCircle.Color = Color3.fromRGB(255,255,255)
+FOVCircle.Thickness = 2
+FOVCircle.Filled = false
+FOVCircle.Transparency = 0.5
+FOVCircle.NumSides = 100
+FOVCircle.Visible = true
+
+--// RemoteEvent ที่มักเจอ
+local possibleRemoteNames = {
+    "MAINEVENT",
+    "MainEvent",
+    "MeleeEvent",
+    "CombatEvent",
+    "HitEvent"
+}
+
+--// สร้าง Highlight ให้ผู้เล่น
+local function CreateHighlight(plr)
+    local hl = Instance.new("Highlight")
+    hl.Name = plr.Name
+    hl.FillColor = FillColor
+    hl.DepthMode = DepthMode
+    hl.FillTransparency = FillTransparency
+    hl.OutlineColor = OutlineColor
+    hl.OutlineTransparency = OutlineTransparency
+    hl.Parent = Storage
+
+    if plr.Character then
+        hl.Adornee = plr.Character
+    end
+
+    connections[plr] = plr.CharacterAdded:Connect(function(char)
+        hl.Adornee = char
+    end)
+
+    highlights[plr] = hl
+end
+
+-- Hook player
+Players.PlayerAdded:Connect(CreateHighlight)
+for _,v in pairs(Players:GetPlayers()) do
+    if v ~= lp then
+        CreateHighlight(v)
+    end
+end
+
+Players.PlayerRemoving:Connect(function(plr)
+    if highlights[plr] then
+        highlights[plr]:Destroy()
+        highlights[plr] = nil
+    end
+    if connections[plr] then
+        connections[plr]:Disconnect()
+        connections[plr] = nil
+    end
+end)
+
+--// หา target ใกล้สุดใน FOV
+local function GetTargetInFOV()
+    local mousePos = UserInputService:GetMouseLocation()
+    local nearest, nearestDist = nil, math.huge
+
+    for plr, hl in pairs(highlights) do
+        if plr ~= lp and plr.Character and plr.Character:FindFirstChild("HumanoidRootPart") and plr.Character:FindFirstChild("Humanoid") and plr.Character.Humanoid.Health > 0 then
+            local part = plr.Character.HumanoidRootPart
+            local screenPos, onScreen = Camera:WorldToViewportPoint(part.Position)
+
+            if onScreen then
+                local dist = (Vector2.new(screenPos.X, screenPos.Y) - mousePos).Magnitude
+                if dist <= FOVRadius then
+                    hl.Enabled = true
+                    if dist < nearestDist then
+                        nearestDist = dist
+                        nearest = plr
+                    end
+                else
+                    hl.Enabled = false
+                end
+            else
+                hl.Enabled = false
+            end
+        end
+    end
+
+    return nearest
+end
+
+--// หา RemoteEvent ของ Tool
+local function FindRemote(tool)
+    for _, child in pairs(tool:GetChildren()) do
+        if child:IsA("RemoteEvent") or child:IsA("RemoteFunction") then
+            return child
+        end
+    end
+    for _, name in ipairs(possibleRemoteNames) do
+        local r = ReplicatedStorage:FindFirstChild(name)
+        if r and (r:IsA("RemoteEvent") or r:IsA("RemoteFunction")) then
+            return r
+        end
+    end
+    return nil
+end
+
+--// Hook Tool Fists
+local function HookFists(tool)
+    if not tool or tool.Name ~= "Fists" then return end
+    if tool:FindFirstChild("__Hooked") then return end
+    local marker = Instance.new("BoolValue")
+    marker.Name = "__Hooked"
+    marker.Parent = tool
+
+    tool.Activated:Connect(function()
+        local target = GetTargetInFOV()
+        if not target then return end
+        local hrp = target.Character and target.Character:FindFirstChild("HumanoidRootPart")
+        if not hrp then return end
+        local remote = FindRemote(tool)
+        if remote then
+            if remote:IsA("RemoteEvent") then
+                pcall(function() remote:FireServer("MOUSE", hrp.Position) end)
+            elseif remote:IsA("RemoteFunction") then
+                pcall(function() remote:InvokeServer("MOUSE", hrp.Position) end)
+            end
+        else
+            warn("[MeleeAssist] ไม่พบ RemoteEvent สำหรับ Fists")
+        end
+    end)
+end
+
+-- Hook existing Fists
+local function HookExistingFists()
+    if lp.Backpack:FindFirstChild("Fists") then
+        HookFists(lp.Backpack:FindFirstChild("Fists"))
+    end
+    if lp.Character and lp.Character:FindFirstChild("Fists") then
+        HookFists(lp.Character:FindFirstChild("Fists"))
+    end
+end
+HookExistingFists()
+
+-- คอยจับ Tool ใหม่
+lp.Backpack.ChildAdded:Connect(function(c)
+    HookFists(c)
+end)
+lp.CharacterAdded:Connect(function(char)
+    char.ChildAdded:Connect(function(c)
+        HookFists(c)
+    end)
+end)
+
+--// อัปเดต FOV + Highlight
+RunService.RenderStepped:Connect(function()
+    local mousePos = UserInputService:GetMouseLocation()
+    FOVCircle.Position = Vector2.new(mousePos.X, mousePos.Y)
+    GetTargetInFOV() -- อัปเดต Highlight
+end)
+
+print("[MeleeAssist] พร้อมใช้งานสำหรับ Fists + FOV + Highlight")
