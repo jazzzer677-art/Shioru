@@ -1,0 +1,129 @@
+-- Services
+local Players = game:GetService("Players")
+local RunService = game:GetService("RunService")
+local LocalPlayer = Players.LocalPlayer
+local CoreGui = game:GetService("CoreGui")
+local UserInputService = game:GetService("UserInputService")
+
+-- Settings
+local Settings = {
+    AimPart = "HumanoidRootPart",
+    AutoShoot = true,
+    Prediction = 0.12,
+    JumpOffset = 0.07,
+    GunList = {"[AUG]", "[Rifle]", "[Flintlock]"},
+}
+
+-- Highlight
+local targetHigh = Instance.new("Highlight")
+targetHigh.Name = "SilentAim_TargetHighlight"
+targetHigh.FillColor = Color3.fromRGB(175,25,255)
+targetHigh.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
+targetHigh.FillTransparency = 0.5
+targetHigh.OutlineColor = Color3.fromRGB(255,255,255)
+targetHigh.OutlineTransparency = 0
+targetHigh.Parent = CoreGui
+
+-- ตัวแปรเก็บเป้าล็อก
+local lockedTarget = nil
+
+-- ฟังก์ชันหาเป้าใกล้สุด
+local function getNearestTarget()
+    if not LocalPlayer.Character or not LocalPlayer.Character:FindFirstChild(Settings.AimPart) then return nil end
+    local myPos = LocalPlayer.Character[Settings.AimPart].Position
+    local nearestDist = math.huge
+    local nearestTargetPart = nil
+    for _, player in pairs(Players:GetPlayers()) do
+        if player ~= LocalPlayer and player.Character and player.Character:FindFirstChild(Settings.AimPart) then
+            local tp = player.Character[Settings.AimPart]
+            local dist = (tp.Position - myPos).Magnitude
+            if dist < nearestDist then
+                nearestDist = dist
+                nearestTargetPart = tp
+            end
+        end
+    end
+    return nearestTargetPart
+end
+
+-- พยากรณ์ตำแหน่งเป้า
+local function getSilentAimPosition(targetPart)
+    local pos = targetPart.Position
+    local vel = targetPart.Velocity or Vector3.new()
+    local predictedPos = pos + vel * Settings.Prediction
+    local humanoid = targetPart.Parent and targetPart.Parent:FindFirstChildOfClass("Humanoid")
+    if humanoid and humanoid:GetState() == Enum.HumanoidStateType.Jumping then
+        predictedPos = predictedPos + Vector3.new(0, Settings.JumpOffset, 0)
+    end
+    return predictedPos
+end
+
+-- หาอาวุธที่ถืออยู่
+local function getEquippedGun()
+    for _, gunName in ipairs(Settings.GunList) do
+        local gun = LocalPlayer.Character:FindFirstChild(gunName)
+        if gun then return gun end
+        gun = LocalPlayer.Backpack:FindFirstChild(gunName)
+        if gun then return gun end
+    end
+    return nil
+end
+
+-- ยิงเป้าหมาย
+local function fireWeapon(targetPart)
+    if not targetPart then return end
+    local gun = getEquippedGun()
+    if not gun then return end
+    local remote = gun:FindFirstChild("RemoteEvent")
+    if remote and remote:IsA("RemoteEvent") then
+        local aimPos = getSilentAimPosition(targetPart)
+        remote:FireServer("Shoot", aimPos) -- ปรับตาม RemoteEvent จริงของเกม
+    end
+end
+
+-- ฟังก์ชันล็อก/ปลดล็อกเป้า
+local function lockTarget()
+    local nearest = getNearestTarget()
+    if nearest then
+        lockedTarget = nearest.Parent
+    end
+end
+
+local function unlockTarget()
+    lockedTarget = nil
+end
+
+-- Keybind: กด 'E' เพื่อ Lock/Unlock
+UserInputService.InputBegan:Connect(function(input, gameProcessed)
+    if gameProcessed then return end
+    if input.KeyCode == Enum.KeyCode.E then
+        if lockedTarget then
+            unlockTarget()
+        else
+            lockTarget()
+        end
+    end
+end)
+
+-- Loop หลัก
+RunService.RenderStepped:Connect(function()
+    local targetPart = nil
+
+    if lockedTarget and lockedTarget:FindFirstChild(Settings.AimPart) then
+        targetPart = lockedTarget[Settings.AimPart]
+    else
+        targetPart = getNearestTarget()
+    end
+
+    -- ยิงอัตโนมัติ
+    if targetPart and Settings.AutoShoot then
+        fireWeapon(targetPart)
+    end
+
+    -- Update Highlight
+    if targetPart and targetPart.Parent then
+        targetHigh.Adornee = targetPart.Parent
+    else
+        targetHigh.Adornee = nil
+    end
+end)
