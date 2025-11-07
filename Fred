@@ -22,7 +22,7 @@ targetHigh.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
 targetHigh.FillTransparency = 0.5
 targetHigh.OutlineColor = Color3.fromRGB(255,255,255)
 targetHigh.OutlineTransparency = 0
-targetHigh.Parent = CoreGui
+targetHigh.Parent = LocalPlayer:WaitForChild("PlayerGui") -- เปลี่ยนจาก CoreGui เพื่อให้มั่นใจว่าแสดง
 
 -- ตัวแปรเก็บเป้าล็อก
 local lockedTarget = nil
@@ -58,13 +58,14 @@ local function getSilentAimPosition(targetPart)
     return predictedPos
 end
 
--- หาอาวุธที่ถืออยู่
+-- หาอาวุธที่ถืออยู่ รอโหลดสูงสุด 5 วินาที
 local function getEquippedGun()
     for _, gunName in ipairs(Settings.GunList) do
-        local gun = LocalPlayer.Character:FindFirstChild(gunName)
-        if gun then return gun end
-        gun = LocalPlayer.Backpack:FindFirstChild(gunName)
-        if gun then return gun end
+        local gun = LocalPlayer.Character:FindFirstChild(gunName) or LocalPlayer.Backpack:FindFirstChild(gunName)
+        if gun then
+            gun = gun:WaitForChild("RemoteEvent", 5)
+            if gun then return gun end
+        end
     end
     return nil
 end
@@ -72,12 +73,11 @@ end
 -- ยิงเป้าหมาย
 local function fireWeapon(targetPart)
     if not targetPart then return end
-    local gun = getEquippedGun()
-    if not gun then return end
-    local remote = gun:FindFirstChild("RemoteEvent")
+    local remote = getEquippedGun()
     if remote and remote:IsA("RemoteEvent") then
         local aimPos = getSilentAimPosition(targetPart)
-        remote:FireServer("Shoot", aimPos) -- ปรับตาม RemoteEvent จริงของเกม
+        -- ⚠️ ตรวจสอบพารามิเตอร์ RemoteEvent ของเกมจริง
+        remote:FireServer("Shoot", aimPos)
     end
 end
 
@@ -86,10 +86,14 @@ local function lockTarget()
     local nearest = getNearestTarget()
     if nearest then
         lockedTarget = nearest.Parent
+        print("Locked target:", lockedTarget.Name)
     end
 end
 
 local function unlockTarget()
+    if lockedTarget then
+        print("Unlocked target:", lockedTarget.Name)
+    end
     lockedTarget = nil
 end
 
